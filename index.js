@@ -6,6 +6,7 @@ const port = process.env.PORT || 5000;
 const app = express()
 
 require('dotenv').config()
+const stripe = require("stripe")(process.env.stripe_key);
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
@@ -45,6 +46,40 @@ async function run() {
         const bookingsCollection = client.db('DoctorsPortal').collection('bookings');
         const usersCollection = client.db('DoctorsPortal').collection('users');
         const doctorsCollection = client.db('DoctorsPortal').collection('doctors');
+        const paymentsCollection = client.db('DoctorsPortal').collection('payments');
+
+        app.post('/create-payment-intent', async (req, res) => {
+            const booking = req.body;
+            const price = booking.price;
+            const amount = price * 100;
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                currency: 'usd',
+                amount: amount,
+                "payment_method_types": [
+                    "card"
+                ]
+            });
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+        });
+
+        app.post('/payments', async (req, res) => {
+            const payment = req.body;
+            const result = await paymentsCollection.insertOne(payment);
+            const id = payment.bookingId;
+            const filter = { _id: ObjectId(id) };
+            const updatedDoc = {
+                $set: {
+                    paid: true,
+                    transactionId: payment.transactionId
+                }
+            }
+            const updatedResult = await bookingsCollection.updateOne(filter, updatedDoc)
+            res.send(result);
+        })
+
 
         const verifyAdmin = async (req, res, next) => {
             const email = req.decoded.email;
@@ -61,7 +96,7 @@ async function run() {
             const options = await appointmentOptionCollection.find(query).toArray();
 
             const date = req.query.date;
-            console.log(date);
+            // console.log(date);
             const bookingQuery = { appointDate: date };
             const bookedAppointments = await bookingsCollection.find(bookingQuery).toArray();
             options.forEach(option => {
@@ -99,6 +134,7 @@ async function run() {
                     $project: {
                         name: 1,
                         slots: 1,
+                        price: 1,
                         booked: {
                             $map: {
                                 input: '$booked',
@@ -139,6 +175,14 @@ async function run() {
             res.send(result);
         })
 
+        app.get("/bookings/:id", async (req, res) => {
+            const id = req.params.id;
+            // console.log(id);
+            const query = { _id: ObjectId(id) };
+            const bookings = await bookingsCollection.findOne(query);
+            res.send(bookings);
+        })
+
         app.post('/bookings', async (req, res) => {
             const booking = req.body;
             const query = {
@@ -167,7 +211,7 @@ async function run() {
 
             if (user) {
                 const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, { expiresIn: '1h' });
-                console.log(token);
+                // console.log(token);
                 return res.send({ Access_token: token })
             }
 
@@ -184,7 +228,7 @@ async function run() {
 
         app.post('/users', async (req, res) => {
             const user = req.body;
-            console.log(user);
+            // console.log(user);
             const result = await usersCollection.insertOne(user);
 
 
@@ -195,7 +239,7 @@ async function run() {
                 const filter = {
                     email: user.email
                 };
-                console.log(filter);
+                // console.log(filter);
 
                 const options = { upsert: true };
                 const updateDoc = {
@@ -218,7 +262,7 @@ async function run() {
         })
 
 
-        app.put('/users/admin/:id', verifyJWT,verifyAdmin, async (req, res) => {
+        app.put('/users/admin/:id', verifyJWT, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             // const decodedEmail = req.decoded.email;
             // const query = { email: decodedEmail };
@@ -242,7 +286,7 @@ async function run() {
             res.send(result);
         });
 
-        app.get("/doctors", verifyJWT,verifyAdmin, async (req, res) => {
+        app.get("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
             // console.log("inside doctors");
             const query = {};
             const result = await doctorsCollection.find(query).toArray();
@@ -250,20 +294,33 @@ async function run() {
             res.send(result);
         })
 
-        app.post("/dashboard/adddoctor", verifyJWT,verifyAdmin, async (req, res) => {
+        app.post("/dashboard/adddoctor", verifyJWT, verifyAdmin, async (req, res) => {
 
             const data = req.body;
             const result = await doctorsCollection.insertOne(data);
             return res.send(result);
         })
 
-        app.delete("/doctors/:id", verifyJWT,verifyAdmin, async (req, res) => {
+        app.delete("/doctors/:id", verifyJWT, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             // console.log(id);
             const query = { _id: ObjectId(id) };
             const result = await doctorsCollection.deleteOne(query);
             return res.send(result);
         })
+
+        // temporary to update price field on appointment options
+        // app.get('/addPrice', async (req, res) => {
+        //     const filter = {}
+        //     const options = { upsert: true }
+        //     const updatedDoc = {
+        //         $set: {
+        //             price: 99
+        //         }
+        //     }
+        //     const result = await appointmentOptionCollection.updateMany(filter, updatedDoc, options);
+        //     res.send(result);
+        // })
 
     }
     finally {
