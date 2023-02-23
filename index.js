@@ -1,7 +1,8 @@
 const express = require('express')
 const cors = require('cors')
 const jwt = require('jsonwebtoken')
-
+const nodemailer = require('nodemailer');
+const mg = require('nodemailer-mailgun-transport');
 const port = process.env.PORT || 5000;
 const app = express()
 
@@ -33,7 +34,41 @@ const verifyJWT = (req, res, next) => {
     })
 }
 
+function sendBookingEmail(booking) {
 
+    // let transporter = nodemailer.createTransport({
+    //     host: 'smtp.sendgrid.net',
+    //     port: 587,
+    //     auth: {
+    //         user: "apikey",
+    //         pass: process.env.SENDGRID_API_KEY
+    //     }
+    // });
+
+    const auth = {
+        auth: {
+            api_key: process.env.EMAIL_SEND_KEY,
+            domain: process.env.EMAIL_SEND_DOMAIN,
+        }
+    }
+
+    const transporter = nodemailer.createTransport(mg(auth));
+
+    transporter.sendMail({
+        from: "Kawsarjamil726@gmail.com", // verified sender email
+        // to: booking.email, // recipient email
+        to: "Kawsarjamil726@gmail.com",
+        subject: "Confirmation Mail", // Subject line
+        text: "Booking confirmed!", // plain text body
+        // html: "<b>Hello world!</b>", // html body
+    }, function (error, info) {
+        if (error) {
+            console.log(error);
+        } else {
+            console.log('Email sent: ' + info);
+        }
+    });
+}
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.dkxq1qc.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
@@ -198,17 +233,19 @@ async function run() {
             }
 
             const result = await bookingsCollection.insertOne(booking);
+            sendBookingEmail(booking);
             res.send(result);
         });
 
 
         app.get('/jwt', async (req, res) => {
             const email = req.query.email;
+            console.log(email);
             const query = {
                 email: email
             }
             const user = await usersCollection.findOne(query);
-
+            console.log(user);
             if (user) {
                 const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, { expiresIn: '1h' });
                 // console.log(token);
